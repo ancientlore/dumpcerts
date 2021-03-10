@@ -9,68 +9,91 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
+	"os"
 	"strings"
 )
 
 func main() {
-
+	useStdIn := flag.Bool("stdin", false, "Use stdin for input")
 	flag.Parse()
 
+	if *useStdIn {
+		fmt.Println(strings.Repeat("----------", 6))
+		fmt.Println("stdin")
+		fmt.Println(strings.Repeat("----------", 6))
+		fmt.Println()
+		err := processFile(os.Stdin)
+		if err != nil {
+			log.Print(err)
+		}
+	}
 	for _, file := range flag.Args() {
 		fmt.Println(strings.Repeat("----------", 6))
 		fmt.Println(file)
 		fmt.Println(strings.Repeat("----------", 6))
 		fmt.Println()
-
-		rest, err := ioutil.ReadFile(file)
+		f, err := os.Open(file)
 		if err != nil {
-			log.Println(err)
+			log.Print(err)
 			continue
 		}
+		err = processFile(f)
+		if err != nil {
+			log.Print(err)
+		}
+		f.Close()
+	}
+}
 
-		var block *pem.Block
+func processFile(rdr io.Reader) error {
+	rest, err := io.ReadAll(rdr)
+	if err != nil {
+		return err
+	}
 
-		for {
-			block, rest = pem.Decode(rest)
+	var block *pem.Block
 
-			if block == nil {
-				break
+	for {
+		block, rest = pem.Decode(rest)
+
+		if block == nil {
+			break
+		}
+
+		switch block.Type {
+		case "PUBLIC KEY":
+			_, err := x509.ParsePKIXPublicKey(block.Bytes)
+			if err != nil {
+				return err
 			}
-
-			switch block.Type {
-			case "PUBLIC KEY":
-				_, err := x509.ParsePKIXPublicKey(block.Bytes)
-				if err != nil {
-					log.Print(err)
-				}
-			case "CERTIFICATE":
-				crt, err := x509.ParseCertificate(block.Bytes)
-				if err != nil {
-					log.Print(err)
-					break
-				}
-				fmt.Printf("Subject:              %s\n", crt.Subject)
-				if len(crt.DNSNames) > 0 {
-					fmt.Printf("DNS Names:            %s\n", strings.Join(crt.DNSNames, ", "))
-				}
-				fmt.Printf("Serial Number:        %s\n", crt.SerialNumber)
-				fmt.Printf("Issuer:               %s\n", crt.Issuer)
-				if crt.Issuer.SerialNumber != "" {
-					fmt.Printf("Issuer Serial Number: %s\n", crt.Issuer.SerialNumber)
-				}
-				fmt.Printf("Is CA:                %t\n", crt.IsCA)
-				fmt.Printf("Key Usage:            %s\n", strings.Join(keyUsage(crt.KeyUsage), ", "))
-				fmt.Printf("NotBefore:            %s\n", crt.NotBefore.Local())
-				fmt.Printf("NotAfter:             %s\n", crt.NotAfter.Local())
-				fmt.Printf("Public Key Algorithm: %s\n", crt.PublicKeyAlgorithm)
-				fmt.Printf("Public Key Size:      %d\n", keySize(crt.PublicKey))
-				fmt.Println()
-			case "PRIVATE KEY":
+		case "CERTIFICATE":
+			crt, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				return err
 			}
+			fmt.Printf("Subject:              %s\n", crt.Subject)
+			if len(crt.DNSNames) > 0 {
+				fmt.Printf("DNS Names:            %s\n", strings.Join(crt.DNSNames, ", "))
+			}
+			fmt.Printf("Serial Number:        %s\n", crt.SerialNumber)
+			fmt.Printf("Issuer:               %s\n", crt.Issuer)
+			if crt.Issuer.SerialNumber != "" {
+				fmt.Printf("Issuer Serial Number: %s\n", crt.Issuer.SerialNumber)
+			}
+			fmt.Printf("Is CA:                %t\n", crt.IsCA)
+			fmt.Printf("Key Usage:            %s\n", strings.Join(keyUsage(crt.KeyUsage), ", "))
+			fmt.Printf("NotBefore:            %s\n", crt.NotBefore.Local())
+			fmt.Printf("NotAfter:             %s\n", crt.NotAfter.Local())
+			fmt.Printf("Public Key Algorithm: %s\n", crt.PublicKeyAlgorithm)
+			fmt.Printf("Public Key Size:      %d\n", keySize(crt.PublicKey))
+			fmt.Println()
+		case "PRIVATE KEY":
 		}
 	}
+
+	return nil
 }
 
 func keySize(k interface{}) int {
